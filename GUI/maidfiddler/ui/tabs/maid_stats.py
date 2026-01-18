@@ -131,6 +131,8 @@ class MaidStatsTab(UiTab):
         element = self.sender()
         prop = element.property("prop_name")
         el = self.properties[prop][0]
+        print(f"=== [Python Debug] Sending Property: {prop} ===")
+        print(f"=== [Python Debug] Value: {el.value}, Type: {type(el.value)} ===")
         self.core.SetMaidPropertyActive(prop, el.value())
 
     def commit_bonus(self):
@@ -155,7 +157,12 @@ class MaidStatsTab(UiTab):
 
         for name, widgets in self.properties.items():
             logger.debug(f"Setting {name}")
+            if name not in maid["properties"]:
+                logger.debug(f"Setting {name} failed, no such field")
+                continue
             widgets[0].set_value(maid["properties"][name])
+            if name not in maid["prop_locks"]:
+                continue
             widgets[1].setCheckState(
                 Qt.Checked if maid["prop_locks"][name] else Qt.Unchecked)
 

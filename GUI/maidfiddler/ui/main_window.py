@@ -41,6 +41,7 @@ from maidfiddler.ui.dialogs.update_checker import UpdateDialog
 from app_info import MIN_SUPPORTED_GAME_VERSION, VERSION
 
 from maidfiddler.util.logger import logger
+from maidfiddler.util.util import get_resource_path
 
 UI_MainWindow = uic.loadUiType(
     open(util.get_resource_path("templates/maid_fiddler.ui")))
@@ -205,7 +206,7 @@ class MainWindow(UI_MainWindow[1], UI_MainWindow[0]):
             confirm_button.setText(ok_text)
             confirm_button.setEnabled(True)
 
-        threading._start_new_thread(button_timer, ())
+        threading.Thread(target=button_timer).start()
         warning_box.exec()
 
         if dont_show_cb.checkState() == Qt.Checked:
@@ -213,7 +214,8 @@ class MainWindow(UI_MainWindow[1], UI_MainWindow[0]):
             save_config()
 
     def init_translations(self):
-        tl_path = os.path.join(util.BASE_DIR, "translations")
+        tl_path = util.get_resource_path("translations")
+        
         for tl_file in os.listdir(tl_path):
             lang_name = get_language_name(os.path.join(tl_path, tl_file))
             if lang_name is None:

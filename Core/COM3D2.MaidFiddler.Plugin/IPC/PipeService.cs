@@ -96,8 +96,18 @@ namespace COM3D2.MaidFiddler.Core.IPC
                 throw new ArgumentException($"{eventName}() can take only {argsString} arguments");
             }
 
+            Console.WriteLine($"[C# Debug] Invoking: {eventName}");
+            for (int k = 0; k < args.Length; k++)
+            {
+                if (args[k] == null)
+                    Console.WriteLine($"   Arg[{k}] is NULL! (Wait, why?)");
+                else
+                    Console.WriteLine($"   Arg[{k}] = '{args[k]}' (Type: {args[k].GetType().Name})");
+            }
+
             for (int i = 0; i < args.Length; i++)
             {
+                if (args[i] == null) continue;
                 Type t1 = args[i].GetType();
                 Type t2 = data.parameters[i].ParameterType;
                 if (!t2.IsAssignableFrom(t1))
@@ -122,7 +132,21 @@ namespace COM3D2.MaidFiddler.Core.IPC
             }
             catch (TargetInvocationException te)
             {
-                throw te.InnerException ?? new Exception($"Error when invoking {eventName}()!");
+                Exception realError = te;
+                // 只要还有内部异常，就一直往下剥，直到找到最底层的那个
+                while (realError.InnerException != null)
+                {
+                    Console.WriteLine("==================================================");
+                    Console.WriteLine($"[CRITICAL ERROR FOUND]");
+                    Console.WriteLine($"Type: {realError.GetType().FullName}");
+                    Console.WriteLine($"Message: {realError.Message}");
+                    Console.WriteLine($"Stack Trace:\n{realError.StackTrace}");
+                    Console.WriteLine("==================================================");
+                    realError = realError.InnerException;
+                }
+
+                throw realError; // 抛出真正的错误，而不是外层的包装
+                // throw te.InnerException ?? new Exception($"Error when invoking {eventName}()!");
             }
         }
 

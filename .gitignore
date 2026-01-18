@@ -243,3 +243,4 @@ $RECYCLE.BIN/
 *.lnk
 /.vs/
 GUI/config.ini
+GUI/app.exe

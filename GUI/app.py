@@ -13,8 +13,8 @@ def main():
     app.setStyle(QStyleFactory.create("Fusion"))
 
     window = MainWindow()
-    if CONFIG.getboolean("Options", "check_updates_on_startup", fallback=True):
-        CONFIG["Options"]["check_updates_on_startup"] = "yes"
+    if CONFIG.getboolean("Options", "check_updates_on_startup", fallback=False):
+        CONFIG["Options"]["check_updates_on_startup"] = "no"
         save_config()
         window.check_updates(True)
     window.show()

@@ -3,6 +3,7 @@ import os
 from maidfiddler.util.util import BASE_DIR
 from maidfiddler.util.config import CONFIG
 from maidfiddler.util.logger import logger
+from maidfiddler.util.util import get_resource_path
 import random
 
 
@@ -32,7 +33,7 @@ def get_original(s, parts):
 
 def load_translation(name):
     global current_translation
-    path = os.path.join(BASE_DIR, "translations", name)
+    path = get_resource_path(f"translations/{name}")
 
     logger.debug(f"TL path: {path}")
 

@@ -26,9 +26,9 @@ namespace COM3D2.MaidFiddler.Core.Service
         {
             List<Dict> result = null;
             exec.RunSync(() =>
-                {
-                    result = GameMain.Instance.CharacterMgr.GetStockMaidList().Select(ReadMaidData).ToList();
-                });
+            {
+                result = GameMain.Instance.CharacterMgr.GetStockMaidList().Select(ReadMaidData).ToList();
+            });
             return result;
         }
 
@@ -36,9 +36,9 @@ namespace COM3D2.MaidFiddler.Core.Service
         {
             List<Dict> result = null;
             exec.RunSync(() =>
-                {
-                    result = GameMain.Instance.CharacterMgr.GetStockMaidList().Select(ReadBasicMaidData).ToList();
-                });
+            {
+                result = GameMain.Instance.CharacterMgr.GetStockMaidList().Select(ReadBasicMaidData).ToList();
+            });
             return result;
         }
 
@@ -215,17 +215,17 @@ namespace COM3D2.MaidFiddler.Core.Service
 
         private void SetContract(Maid maid, int contract)
         {
-            maid.status.contract = (Contract) contract;
+            maid.status.contract = (Contract)contract;
         }
 
         private void SetCurSeikeiken(Maid maid, int seikeiken)
         {
-            maid.status.seikeiken = (Seikeiken) seikeiken;
+            maid.status.seikeiken = (Seikeiken)seikeiken;
         }
 
         private void SetInitSeikeiken(Maid maid, int seikeiken)
         {
-            maid.status.initSeikeiken = (Seikeiken) seikeiken;
+            maid.status.initSeikeiken = (Seikeiken)seikeiken;
         }
 
         private void SetWorkDataLevel(Maid maid, object id, object level)
@@ -245,7 +245,7 @@ namespace COM3D2.MaidFiddler.Core.Service
             if (maid.status.workDatas.ContainsKey(workId))
                 baseCount = maid.status.workDatas[workId].playCount;
 
-            maid.status.AddWorkDataPlayCount(workId, (int) (workPlayCount - baseCount));
+            maid.status.AddWorkDataPlayCount(workId, (int)(workPlayCount - baseCount));
         }
 
         private void SetNoonWork(Maid maid, object id)
@@ -301,43 +301,80 @@ namespace COM3D2.MaidFiddler.Core.Service
             skill.playCount = skillPlayCount;
         }
 
+        // ==========================================
+        //  👇👇👇 修复：SetMaidProperty 智能类型转换 👇👇👇
+        // ==========================================
         private void SetMaidProperty(Maid maid, string propertyName, object value)
         {
             FieldInfo field = null;
             MethodInfo setter = null;
             if (!maidSetters.TryGetValue(propertyName, out setter) && !maidFields.TryGetValue(propertyName, out field))
                 throw new ArgumentException($"No such property: {propertyName}", nameof(propertyName));
+
+            // 获取目标类型
             Type paramType = setter?.GetParameters()[0].ParameterType ?? field.FieldType;
 
-            object val;
-            if (paramType.IsEnum)
-                val = Enum.ToObject(paramType, (int) value);
-            else
-                try
+            // 处理 Nullable<T>
+            if (paramType.IsGenericType && paramType.GetGenericTypeDefinition() == typeof(Nullable<>))
+            {
+                paramType = Nullable.GetUnderlyingType(paramType);
+            }
+
+            object val = value;
+            try
+            {
+                if (value != null)
                 {
-                    val = Convert.ChangeType(value, paramType);
+                    if (paramType.IsEnum)
+                    {
+                        val = Enum.ToObject(paramType, Convert.ToInt32(value));
+                    }
+                    else
+                    {
+                        // 智能类型转换 (Double -> Int)
+                        val = Convert.ChangeType(value, paramType);
+                    }
                 }
-                catch (Exception e)
-                {
-                    throw new ArgumentException($"Cannot convert value to {paramType.FullName}.", e);
-                }
+            }
+            catch (Exception e)
+            {
+                throw new ArgumentException($"Cannot convert value '{value}' to {paramType.FullName}.", e);
+            }
 
             try
             {
                 if (setter != null)
                 {
                     var locks = GetLocks(maid.status.guid);
-                    bool prev = locks[propertyName];
-                    locks[propertyName] = false;
+
+                    // 👇👇👇 修复核心：先检查有没有锁，不要盲目读取 👇👇👇
+                    bool hasLock = locks.ContainsKey(propertyName);
+                    bool prev = false;
+
+                    if (hasLock)
+                    {
+                        prev = locks[propertyName];
+                        locks[propertyName] = false; // 暂时解锁
+                    }
+
+                    // 执行修改
                     setter.Invoke(maid.status, new[] { val });
-                    locks[propertyName] = prev;
+
+                    // 恢复锁状态
+                    if (hasLock)
+                    {
+                        locks[propertyName] = prev;
+                    }
+                    // 👆👆👆 修复结束 👆👆👆
                 }
                 else
+                {
                     field.SetValue(maid.status, val);
+                }
             }
             catch (Exception e)
             {
-                Debugger.WriteLine(LogLevel.Error, e.InnerException.ToString());
+                Debugger.WriteLine(LogLevel.Error, $"Error setting {propertyName}: {e.InnerException ?? e}");
             }
         }
 
@@ -357,6 +394,37 @@ namespace COM3D2.MaidFiddler.Core.Service
             return maids[0];
         }
 
+        // ==========================================
+        //  👇👇👇 新增：安全的图片转 PNG 助手函数 👇👇👇
+        // ==========================================
+        private byte[] SafeEncodeToPNG(Texture2D tex)
+        {
+            if (tex == null) return null;
+            try
+            {
+                // 使用 RenderTexture 中转，防止因 Texture 不可读或压缩格式导致的崩溃
+                RenderTexture tmp = RenderTexture.GetTemporary(tex.width, tex.height, 0, RenderTextureFormat.Default, RenderTextureReadWrite.Linear);
+                Graphics.Blit(tex, tmp);
+
+                RenderTexture previous = RenderTexture.active;
+                RenderTexture.active = tmp;
+
+                Texture2D myTexture2D = new Texture2D(tex.width, tex.height);
+                myTexture2D.ReadPixels(new Rect(0, 0, tmp.width, tmp.height), 0, 0);
+                myTexture2D.Apply();
+
+                RenderTexture.active = previous;
+                RenderTexture.ReleaseTemporary(tmp);
+
+                return myTexture2D.EncodeToPNG();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[MaidFiddler Error] 图片转换失败: {ex.Message}");
+                return null;
+            }
+        }
+
         private Dict ReadBasicMaidData(Maid maid)
         {
             if (maid == null)
@@ -364,10 +432,10 @@ namespace COM3D2.MaidFiddler.Core.Service
 
             var result = new Dict
             {
-                    ["guid"] = maid.status.guid,
-                    ["firstName"] = maid.status.firstName,
-                    ["lastName"] = maid.status.lastName,
-                    ["thumbnail"] = maid.GetThumIcon()?.EncodeToPNG()
+                ["guid"] = maid.status.guid,
+                ["firstName"] = maid.status.firstName,
+                ["lastName"] = maid.status.lastName,
+                ["thumbnail"] = SafeEncodeToPNG(maid.GetThumIcon()) // 使用安全转换
             };
 
             return result;
@@ -380,17 +448,17 @@ namespace COM3D2.MaidFiddler.Core.Service
             foreach (YotogiSkillData yotogiSkill in maid.status.yotogiSkill.datas.GetValueArray())
                 yotogiSkills[yotogiSkill.data.id] = new Dict
                 {
-                        ["level"] = yotogiSkill.level,
-                        ["cur_exp"] = yotogiSkill.currentExp,
-                        ["play_count"] = yotogiSkill.playCount
+                    ["level"] = yotogiSkill.level,
+                    ["cur_exp"] = yotogiSkill.currentExp,
+                    ["play_count"] = yotogiSkill.playCount
                 };
 
             foreach (YotogiSkillData yotogiSkill in maid.status.yotogiSkill.oldDatas.GetValueArray())
                 yotogiSkills[yotogiSkill.oldData.id] = new Dict
                 {
-                        ["level"] = yotogiSkill.level,
-                        ["cur_exp"] = yotogiSkill.currentExp,
-                        ["play_count"] = yotogiSkill.playCount
+                    ["level"] = yotogiSkill.level,
+                    ["cur_exp"] = yotogiSkill.currentExp,
+                    ["play_count"] = yotogiSkill.playCount
                 };
             return yotogiSkills;
         }
@@ -405,19 +473,36 @@ namespace COM3D2.MaidFiddler.Core.Service
             var props = new Dict();
             result["properties"] = props;
 
+            // 处理 Properties (Getters)
             foreach (var getter in maidGetters)
-                if (maidSetters.ContainsKey(getter.Key))
-                    if (getter.Value.ReturnType.IsEnum)
-                        props[getter.Key] = (int) getter.Value.Invoke(maid.status, new object[0]);
-                    else
-                        props[getter.Key] = getter.Value.Invoke(maid.status, new object[0]);
+            {
+                if (!maidSetters.ContainsKey(getter.Key)) continue;
 
+                try
+                {
+                    var val = getter.Value.Invoke(maid.status, new object[0]);
+                    props[getter.Key] = getter.Value.ReturnType.IsEnum ? (int)val : val;
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[MaidFiddler Warning] 跳过损坏的 Getter: {getter.Key}. 错误: {ex.Message}");
+                    props[getter.Key] = 0; // 默认值防崩
+                }
+            }
+
+            // 处理 Fields
             foreach (var field in maidFields)
             {
-                if (field.Value.FieldType.IsEnum)
-                    props[field.Key] = (int) field.Value.GetValue(maid.status);
-                else
-                    props[field.Key] = field.Value.GetValue(maid.status);
+                try
+                {
+                    var val = field.Value.GetValue(maid.status);
+                    props[field.Key] = field.Value.FieldType.IsEnum ? (int)val : val;
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[MaidFiddler Warning] 跳过损坏的 Field: {field.Key}. 错误: {ex.Message}");
+                    props[field.Key] = 0; // 默认值防崩
+                }
             }
 
             props["personal"] = maid.status.personal?.id ?? 0;
@@ -447,7 +532,17 @@ namespace COM3D2.MaidFiddler.Core.Service
             result["bonus_properties"] = bonusProps;
 
             foreach (FieldInfo fieldInfo in bonusStatusFields)
-                bonusProps[fieldInfo.Name] = fieldInfo.GetValue(bonusStatusField.GetValue(maid.status));
+            {
+                try
+                {
+                    bonusProps[fieldInfo.Name] = fieldInfo.GetValue(bonusStatusField.GetValue(maid.status));
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[MaidFiddler Warning] bonusStatusFields 跳过: {fieldInfo.Name}. Error: {ex.Message}");
+                    bonusProps[fieldInfo.Name] = "";
+                }
+            }
 
             var jobData = new Dict();
             result["job_class_data"] = jobData;
@@ -466,8 +561,8 @@ namespace COM3D2.MaidFiddler.Core.Service
             result["feature_ids"] = maid.status.features.GetValueArray().Select(f => f.id).ToArray();
             result["propensity_ids"] = maid.status.propensitys.GetValueArray().Select(f => f.id).ToArray();
 
-            Texture2D thum = maid.GetThumIcon();
-            result["maid_thumbnail"] = thum?.EncodeToPNG();
+            // 使用安全方法生成缩略图
+            result["maid_thumbnail"] = SafeEncodeToPNG(maid.GetThumIcon());
 
             result["guid"] = maid.status.guid;
 
@@ -549,11 +644,11 @@ namespace COM3D2.MaidFiddler.Core.Service
             Emit("old_maid_deserialized",
                  new Dict
                  {
-                         ["old_guid"] = e.OldGuid,
-                         ["new_guid"] = e.Maid.status.guid,
-                         ["firstName"] = e.Maid.status.firstName,
-                         ["lastName"] = e.Maid.status.lastName,
-                         ["thumbnail"] = e.Maid.GetThumIcon()?.EncodeToPNG()
+                     ["old_guid"] = e.OldGuid,
+                     ["new_guid"] = e.Maid.status.guid,
+                     ["firstName"] = e.Maid.status.firstName,
+                     ["lastName"] = e.Maid.status.lastName,
+                     ["thumbnail"] = SafeEncodeToPNG(e.Maid.GetThumIcon()) // 使用安全转换
                  });
         }
 
@@ -626,7 +721,7 @@ namespace COM3D2.MaidFiddler.Core.Service
                     return;
 
                 Emit("maid_thumbnail_changed",
-                     new Dict {["guid"] = args.Maid.status.guid, ["thumb"] = args.Maid.GetThumIcon().EncodeToPNG()});
+                     new Dict { ["guid"] = args.Maid.status.guid, ["thumb"] = SafeEncodeToPNG(args.Maid.GetThumIcon()) }); // 使用安全转换
             };
         }
     }
